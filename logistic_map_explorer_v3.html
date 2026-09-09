@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Logistic Map Explorer v3</title>
+<style>
+*{box-sizing:border-box} html,body{margin:0;width:100%;height:100%;overflow:hidden}
+body{font-family:"Segoe UI",Arial,sans-serif;background:#202020;color:#eee}
+.app{display:flex;width:100vw;height:100vh}
+.panel{width:220px;min-width:220px;padding:18px 20px;background:#202020;border-right:1px solid #383838}
+.title{font-size:17px;font-weight:700;margin-bottom:22px}
+.control{margin-bottom:19px}.label-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+label{font-size:13px;color:#ddd} input[type=number]{width:68px;height:25px;border:1px solid #666;border-radius:3px;background:#f5f5f5;color:#222;text-align:center}
+input[type=range]{width:100%;accent-color:#4da3d9;cursor:pointer}.hint{margin-top:5px;color:#777;font-size:10px}
+button{width:100%;min-height:38px;padding:7px;margin-top:7px;border:1px solid #426b7d;border-radius:4px;background:#263941;color:#eee;cursor:pointer;font-size:12px}
+button:hover{background:#304a55}button.primary{background:#315b70}button.stop{background:#402f2f;border-color:#735252}
+.small{font-size:10px;color:#777;line-height:1.45;margin-top:10px}
+.graphs{display:grid;grid-template-columns:1fr 1fr;flex:1;min-width:0;background:#363636;gap:1px}
+.graph{position:relative;min-width:0;background:#202020}canvas{display:block;width:100%;height:100%}
+.top{position:absolute;top:12px;left:50%;transform:translateX(-50%);font-size:12px;color:#ddd;white-space:nowrap;pointer-events:none}
+.sub{position:absolute;top:33px;left:50%;transform:translateX(-50%);font-size:10px;color:#777;white-space:nowrap;pointer-events:none}
+.legend{position:absolute;left:14px;top:13px;font-size:10px;color:#999;pointer-events:none}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#20d89a;margin-right:4px}
+.badge{position:absolute;right:12px;top:13px;font-size:10px;color:#999}
+@media(max-width:800px){.panel{width:175px;min-width:175px;padding:14px}.graphs{grid-template-columns:1fr}.graph:nth-child(2){display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="panel">
+<div class="title">Logistic Map</div>
+
+<div class="control">
+<div class="label-row"><label>번식률 r</label><input id="rNum" type="number" min="0" max="4" step=".01" value="0.00"></div>
+<input id="rRange" type="range" min="0" max="4" step=".01" value="0">
+<div class="hint">0 ≤ r ≤ 4</div>
+</div>
+
+<div class="control">
+<div class="label-row"><label>초기값 X₀</label><input id="xNum" type="number" min="0" max="1" step=".001" value=".500"></div>
+<input id="xRange" type="range" min="0" max="1" step=".001" value=".5">
+<div class="hint">0 ≤ X₀ ≤ 1</div>
+</div>
+
+<div class="control">
+<div class="label-row"><label>반복 횟수</label><input id="nNum" type="number" min="1" max="500" step="1" value="50"></div>
+<input id="nRange" type="range" min="1" max="500" value="50">
+<div class="hint">왼쪽 그래프의 n 범위</div>
+</div>
+
+<div class="control">
+<div class="label-row"><label>수렴 전 제거</label><input id="transNum" type="number" min="20" max="3000" step="10" value="300"></div>
+<input id="transRange" type="range" min="20" max="3000" step="10" value="300">
+<div class="hint">오른쪽 그래프에서 버릴 초기 항</div>
+</div>
+
+<button class="primary" id="play">▶ r 재생 (0 → 4)</button>
+<button id="pause">Ⅱ 일시정지</button>
+<button id="clear">오른쪽 그래프 지우기</button>
+<button id="reset">초기화</button>
+<div class="small">r을 직접 움직이면 왼쪽 그래프와 오른쪽의 현재 위치가 함께 바뀝니다.<br>「r 재생」을 누르면 0에서 4까지 오른쪽 분기 다이어그램이 실시간으로 쌓입니다.</div>
+</aside>
+
+<div class="graphs">
+<section class="graph"><canvas id="left"></canvas>
+<div class="legend"><span class="dot"></span>Xₙ</div>
+<div class="top" id="leftTitle">Xₙ vs. n · r = 0.00 · X₀ = 0.500</div>
+<div class="sub">Xₙ₊₁ = rXₙ(1 − Xₙ)</div></section>
+
+<section class="graph"><canvas id="right"></canvas>
+<div class="top">Bifurcation Diagram</div>
+<div class="sub">각 r에서 안정되거나 진동하는 값들을 표시</div>
+<div class="badge" id="rightStatus">r = 0.00</div></section>
+</div>
+</div>
+
+<script>
+(() => {
+const $=id=>document.getElementById(id);
+const L=$("left"),R=$("right"),lc=L.getContext("2d"),rc=R.getContext("2d");
+let animationId=null, playing=false, sweepR=0;
+const state={diagram:[], samples:1800, keep:70};
+
+function setup(c,ctx){
+  const dpr=window.devicePixelRatio||1, q=c.getBoundingClientRect();
+  c.width=Math.max(1,Math.round(q.width*dpr)); c.height=Math.max(1,Math.round(q.height*dpr));
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+function chartGeometry(c,ctx,xMax,xStep,xLabel,yLabel){
+  const W=c.getBoundingClientRect().width,H=c.getBoundingClientRect().height;
+  const m={l:58,r:22,t:68,b:48},pw=W-m.l-m.r,ph=H-m.t-m.b;
+  ctx.clearRect(0,0,W,H); ctx.font="11px Segoe UI,Arial"; ctx.lineWidth=1;
+  for(let i=0;i<=10;i++){
+    const y=i/10,py=m.t+ph*(1-y);
+    ctx.strokeStyle="#303030";ctx.beginPath();ctx.moveTo(m.l,py);ctx.lineTo(W-m.r,py);ctx.stroke();
+    ctx.fillStyle="#aaa";ctx.textAlign="right";ctx.textBaseline="middle";ctx.fillText(y.toFixed(1),m.l-9,py);
+  }
+  for(let x=0;x<=xMax+1e-8;x+=xStep){
+    const px=m.l+pw*x/xMax;
+    ctx.strokeStyle="#292929";ctx.beginPath();ctx.moveTo(px,m.t);ctx.lineTo(px,H-m.b);ctx.stroke();
+    ctx.fillStyle="#aaa";ctx.textAlign="center";ctx.fillText(Number.isInteger(x)?x.toString():x.toFixed(1),px,H-m.b+22);
+  }
+  ctx.strokeStyle="#777";ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,H-m.b);ctx.lineTo(W-m.r,H-m.b);ctx.stroke();
+  ctx.fillStyle="#c5c5c5";ctx.font="13px Segoe UI,Arial";ctx.textAlign="center";ctx.fillText(xLabel,m.l+pw/2,H-10);
+  ctx.save();ctx.translate(16,m.t+ph/2);ctx.rotate(-Math.PI/2);ctx.fillText(yLabel,0,0);ctx.restore();
+  return {W,H,m,pw,ph};
+}
+function getSeries(){
+  const r=+$("rRange").value,x0=+$("xRange").value,N=+$("nRange").value,a=[x0];
+  for(let n=0;n<N;n++){const x=a[a.length-1];a.push(r*x*(1-x))}
+  return a;
+}
+function drawLeft(){
+  setup(L,lc);
+  const r=+$("rRange").value,x0=+$("xRange").value,N=+$("nRange").value,a=getSeries();
+  const g=chartGeometry(L,lc,N,Math.max(1,Math.ceil(N/10)),"n","Xₙ");
+  lc.strokeStyle="#3a7896";lc.lineWidth=2;lc.beginPath();
+  a.forEach((v,n)=>{const px=g.m.l+g.pw*n/N,py=g.m.t+g.ph*(1-Math.max(0,Math.min(1,v)));n?lc.lineTo(px,py):lc.moveTo(px,py)});lc.stroke();
+  a.forEach((v,n)=>{const px=g.m.l+g.pw*n/N,py=g.m.t+g.ph*(1-Math.max(0,Math.min(1,v)));lc.beginPath();lc.arc(px,py,N>180?2:3.2,0,Math.PI*2);lc.fillStyle="#20d89a";lc.fill()});
+  $("leftTitle").textContent=`Xₙ vs. n · r = ${r.toFixed(2)} · X₀ = ${x0.toFixed(3)}`;
+}
+function calculateTail(r){
+  let x=.5; const trans=+$("transRange").value;
+  for(let n=0;n<trans;n++) x=r*x*(1-x);
+  const out=[];
+  for(let k=0;k<state.keep;k++){x=r*x*(1-x);out.push(x)}
+  return out;
+}
+function drawRightBase(){
+  setup(R,rc);
+  const g=chartGeometry(R,rc,4,.5,"r","Xₙ");
+  rc.fillStyle="#20d89a";
+  for(const p of state.diagram){
+    const px=g.m.l+g.pw*p.r/4, py=g.m.t+g.ph*(1-p.x);
+    rc.fillRect(px,py,1.1,1.1);
+  }
+  drawMarker(g,+$("rRange").value);
+}
+function drawMarker(g,r){
+  const px=g.m.l+g.pw*r/4;
+  rc.save();rc.strokeStyle="#aaa";rc.lineWidth=1;rc.setLineDash([4,4]);
+  rc.beginPath();rc.moveTo(px,g.m.t);rc.lineTo(px,g.H-g.m.b);rc.stroke();rc.restore();
+  rc.fillStyle="#ddd";rc.font="10px Segoe UI,Arial";rc.textAlign="center";rc.fillText(`r=${r.toFixed(2)}`,px,g.m.t-8);
+  $("rightStatus").textContent=`현재 r = ${r.toFixed(2)} · ${state.diagram.length.toLocaleString()} points`;
+}
+function rebuildDiagram(maxR=4){
+  state.diagram=[];
+  const end=Math.max(0,Math.min(4,maxR)), count=Math.max(1,Math.floor(state.samples*end/4));
+  for(let i=0;i<count;i++){
+    const r=end*i/Math.max(1,count-1),tail=calculateTail(r);
+    for(const x of tail) state.diagram.push({r,x});
+  }
+  drawRightBase();
+}
+function play(){
+  if(playing)return;
+  playing=true;
+  sweepR=0;
+  state.diagram=[];
+  const total=state.samples;
+  let i=0;
+  const step=()=>{
+    if(!playing){animationId=null;return}
+    const batch=8;
+    for(let b=0;b<batch && i<total;b++,i++){
+      sweepR=4*i/(total-1);
+      const tail=calculateTail(sweepR);
+      for(const x of tail)state.diagram.push({r:sweepR,x});
+    }
+    $("rRange").value=sweepR;$("rNum").value=sweepR.toFixed(2);
+    drawLeft();drawRightBase();
+    if(i<total) animationId=requestAnimationFrame(step);
+    else {playing=false;animationId=null;$("rightStatus").textContent="완료 · r = 4.00";drawLeft()}
+  };
+  step();
+}
+function pause(){
+  playing=false;
+  if(animationId)cancelAnimationFrame(animationId);
+  animationId=null;
+}
+function syncRange(range,num,dec,fn){
+  $(range).addEventListener("input",()=>{
+    $(num).value=dec?Number($(range).value).toFixed(dec):$(range).value;
+    fn();
+  });
+  $(num).addEventListener("change",()=>{
+    let v=parseFloat($(num).value);if(!Number.isFinite(v))v=0;
+    if(range==="rRange")v=Math.max(0,Math.min(4,v));
+    if(range==="xRange")v=Math.max(0,Math.min(1,v));
+    if(range==="nRange")v=Math.round(Math.max(1,Math.min(500,v)));
+    if(range==="transRange")v=Math.round(Math.max(20,Math.min(3000,v))/10)*10;
+    $(range).value=v;$(num).value=dec?Number(v).toFixed(dec):v;fn();
+  });
+}
+syncRange("rRange","rNum",2,()=>{drawLeft();drawRightBase()});
+syncRange("xRange","xNum",3,drawLeft);
+syncRange("nRange","nNum",0,drawLeft);
+syncRange("transRange","transNum",0,()=>{ if(!playing) rebuildDiagram(+$("rRange").value||4) });
+
+$("play").addEventListener("click",play);
+$("pause").addEventListener("click",pause);
+$("clear").addEventListener("click",()=>{pause();state.diagram=[];drawRightBase()});
+$("reset").addEventListener("click",()=>{
+  pause();$("rRange").value=0;$("rNum").value="0.00";$("xRange").value=.5;$("xNum").value=".500";
+  $("nRange").value=50;$("nNum").value=50;$("transRange").value=300;$("transNum").value=300;
+  state.diagram=[];drawLeft();drawRightBase();
+});
+window.addEventListener("resize",()=>{drawLeft();drawRightBase()});
+
+setup(L,lc);setup(R,rc);drawLeft();drawRightBase();
+})();
+</script>
+</body>
+</html>

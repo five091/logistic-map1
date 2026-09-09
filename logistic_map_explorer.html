@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logistic Map Explorer</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: #202020;
+    color: #eee;
+  }
+  .app {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+  }
+  .panel {
+    width: 190px;
+    min-width: 190px;
+    padding: 20px 18px;
+    background: #202020;
+    border-right: 1px solid #333;
+  }
+  .title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 24px;
+  }
+  .control { margin-bottom: 27px; }
+  .label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  label {
+    font-size: 13px;
+    color: #ddd;
+  }
+  input[type="number"] {
+    width: 58px;
+    height: 24px;
+    padding: 2px 5px;
+    border: 1px solid #666;
+    border-radius: 3px;
+    background: #f5f5f5;
+    color: #222;
+    font-size: 12px;
+    text-align: center;
+  }
+  input[type="range"] {
+    width: 100%;
+    accent-color: #39a9ff;
+    cursor: pointer;
+  }
+  .hint {
+    margin-top: 7px;
+    color: #888;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+  button {
+    width: 100%;
+    padding: 8px 0;
+    margin-top: 8px;
+    border: 1px solid #3b697f;
+    border-radius: 3px;
+    background: #24353d;
+    color: #eee;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  button:hover { background: #2d4650; }
+  .graph-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    background: #202020;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .top-info {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    color: #ddd;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .formula {
+    position: absolute;
+    top: 38px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #888;
+    font-size: 11px;
+    pointer-events: none;
+  }
+  .status {
+    position: absolute;
+    right: 18px;
+    top: 14px;
+    color: #888;
+    font-size: 11px;
+    pointer-events: none;
+  }
+  .legend {
+    position: absolute;
+    left: 14px;
+    top: 14px;
+    font-size: 11px;
+    color: #aaa;
+    pointer-events: none;
+  }
+  .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #27d69a;
+    margin-right: 5px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <div class="title">Logistic Map</div>
+
+    <div class="control">
+      <div class="label-row">
+        <label for="rRange">번식률 r</label>
+        <input id="rNumber" type="number" min="0" max="4" step="0.01" value="3.20">
+      </div>
+      <input id="rRange" type="range" min="0" max="4" step="0.01" value="3.20">
+      <div class="hint">0 ≤ r ≤ 4</div>
+    </div>
+
+    <div class="control">
+      <div class="label-row">
+        <label for="xRange">초기값 X₀</label>
+        <input id="xNumber" type="number" min="0" max="1" step="0.001" value="0.500">
+      </div>
+      <input id="xRange" type="range" min="0" max="1" step="0.001" value="0.500">
+      <div class="hint">0 ≤ X₀ ≤ 1</div>
+    </div>
+
+    <div class="control">
+      <div class="label-row">
+        <label for="nRange">반복 횟수</label>
+        <input id="nNumber" type="number" min="1" max="500" step="1" value="50">
+      </div>
+      <input id="nRange" type="range" min="1" max="500" step="1" value="50">
+      <div class="hint">그래프에 표시할 항의 개수</div>
+    </div>
+
+    <button id="reset">초기화</button>
+  </aside>
+
+  <main class="graph-wrap">
+    <canvas id="graph"></canvas>
+    <div class="legend"><span class="dot"></span>Xₙ</div>
+    <div class="top-info" id="title">Population vs. n · r = 3.20 · X₀ = 0.500</div>
+    <div class="formula">Xₙ₊₁ = rXₙ(1 − Xₙ)</div>
+    <div class="status" id="status">n = 0 … 50</div>
+  </main>
+</div>
+
+<script>
+const canvas = document.getElementById("graph");
+const ctx = canvas.getContext("2d");
+
+const rRange = document.getElementById("rRange");
+const rNumber = document.getElementById("rNumber");
+const xRange = document.getElementById("xRange");
+const xNumber = document.getElementById("xNumber");
+const nRange = document.getElementById("nRange");
+const nNumber = document.getElementById("nNumber");
+const resetBtn = document.getElementById("reset");
+const title = document.getElementById("title");
+const status = document.getElementById("status");
+
+function clamp(v, min, max) {
+  return Math.min(max, Math.max(min, v));
+}
+
+function sync(range, number) {
+  range.value = number.value;
+  draw();
+}
+
+rRange.addEventListener("input", () => {
+  rNumber.value = rRange.value;
+  draw();
+});
+rNumber.addEventListener("input", () => {
+  let v = clamp(parseFloat(rNumber.value) || 0, 0, 4);
+  rNumber.value = v.toFixed(2);
+  rRange.value = v;
+  draw();
+});
+
+xRange.addEventListener("input", () => {
+  xNumber.value = Number(xRange.value).toFixed(3);
+  draw();
+});
+xNumber.addEventListener("input", () => {
+  let v = clamp(parseFloat(xNumber.value) || 0, 0, 1);
+  xNumber.value = v.toFixed(3);
+  xRange.value = v;
+  draw();
+});
+
+nRange.addEventListener("input", () => {
+  nNumber.value = nRange.value;
+  draw();
+});
+nNumber.addEventListener("input", () => {
+  let v = Math.round(clamp(parseFloat(nNumber.value) || 1, 1, 500));
+  nNumber.value = v;
+  nRange.value = v;
+  draw();
+});
+
+resetBtn.addEventListener("click", () => {
+  rRange.value = 3.20; rNumber.value = "3.20";
+  xRange.value = 0.500; xNumber.value = "0.500";
+  nRange.value = 50; nNumber.value = 50;
+  draw();
+});
+
+function getData() {
+  const r = parseFloat(rRange.value);
+  const x0 = parseFloat(xRange.value);
+  const N = parseInt(nRange.value);
+  const data = [x0];
+
+  for (let n = 0; n < N; n++) {
+    const x = data[data.length - 1];
+    data.push(r * x * (1 - x));
+  }
+  return data;
+}
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+
+function niceStep(max, targetTicks) {
+  const rough = max / targetTicks;
+  const pow = Math.pow(10, Math.floor(Math.log10(rough)));
+  const normalized = rough / pow;
+  let step;
+  if (normalized <= 1) step = 1;
+  else if (normalized <= 2) step = 2;
+  else if (normalized <= 5) step = 5;
+  else step = 10;
+  return step * pow;
+}
+
+function draw() {
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width;
+  const H = rect.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const data = getData();
+  const r = parseFloat(rRange.value);
+  const x0 = parseFloat(xRange.value);
+  const N = parseInt(nRange.value);
+
+  title.textContent =
+    `Population vs. n · r = ${r.toFixed(2)} · X₀ = ${x0.toFixed(3)}`;
+  status.textContent = `n = 0 … ${N}`;
+
+  const margin = { left: 66, right: 28, top: 78, bottom: 52 };
+  const pw = W - margin.left - margin.right;
+  const ph = H - margin.top - margin.bottom;
+
+  // Grid
+  ctx.lineWidth = 1;
+  ctx.font = "12px Segoe UI, Arial";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+
+  const yStep = 0.1;
+  for (let y = 0; y <= 1.0001; y += yStep) {
+    const py = margin.top + ph * (1 - y);
+    ctx.strokeStyle = "#303030";
+    ctx.beginPath();
+    ctx.moveTo(margin.left, py);
+    ctx.lineTo(W - margin.right, py);
+    ctx.stroke();
+
+    ctx.fillStyle = "#aaa";
+    ctx.fillText(y.toFixed(1), margin.left - 10, py);
+  }
+
+  // X grid: keep readable
+  const desiredXTicks = Math.max(4, Math.min(12, Math.floor(pw / 100)));
+  let xStep = Math.max(1, Math.ceil(N / desiredXTicks));
+  if (N > 50) xStep = Math.ceil(xStep / 5) * 5;
+
+  ctx.textAlign = "center";
+  for (let n = 0; n <= N; n += xStep) {
+    const px = margin.left + pw * (n / Math.max(N, 1));
+    ctx.strokeStyle = "#292929";
+    ctx.beginPath();
+    ctx.moveTo(px, margin.top);
+    ctx.lineTo(px, H - margin.bottom);
+    ctx.stroke();
+
+    ctx.fillStyle = "#aaa";
+    ctx.fillText(String(n), px, H - margin.bottom + 24);
+  }
+  if (N % xStep !== 0) {
+    const px = W - margin.right;
+    ctx.fillStyle = "#aaa";
+    ctx.fillText(String(N), px, H - margin.bottom + 24);
+  }
+
+  // Axes
+  ctx.strokeStyle = "#777";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(margin.left, margin.top);
+  ctx.lineTo(margin.left, H - margin.bottom);
+  ctx.lineTo(W - margin.right, H - margin.bottom);
+  ctx.stroke();
+
+  // Labels
+  ctx.fillStyle = "#c5c5c5";
+  ctx.font = "13px Segoe UI, Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("n", margin.left + pw / 2, H - 12);
+
+  ctx.save();
+  ctx.translate(17, margin.top + ph / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("Xₙ", 0, 0);
+  ctx.restore();
+
+  // Line
+  ctx.strokeStyle = "#3a7896";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+
+  data.forEach((value, n) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    const px = margin.left + pw * (n / Math.max(N, 1));
+    const py = margin.top + ph * (1 - clamp(safe, 0, 1));
+    if (n === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+
+  // Points
+  data.forEach((value, n) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    const px = margin.left + pw * (n / Math.max(N, 1));
+    const py = margin.top + ph * (1 - clamp(safe, 0, 1));
+
+    ctx.beginPath();
+    ctx.arc(px, py, N > 180 ? 2 : 3.3, 0, Math.PI * 2);
+    ctx.fillStyle = "#20d89a";
+    ctx.fill();
+  });
+}
+
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+</script>
+</body>
+</html>
